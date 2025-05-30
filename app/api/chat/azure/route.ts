@@ -2,7 +2,7 @@ import { checkApiKey, getServerProfile } from "@/lib/server/server-chat-helpers"
 import { ChatAPIPayload } from "@/types"
 import { OpenAIStream, StreamingTextResponse } from "ai"
 import OpenAI from "openai"
-import { ChatCompletionMessageParam } from "openai/resources/chat"
+import type OpenAI from "openai"
 
 export const runtime = "edge"
 
@@ -53,7 +53,8 @@ export async function POST(request: Request) {
 
     const response = await azureOpenai.chat.completions.create({
       model: DEPLOYMENT_ID,
-      messages: messages as ChatCompletionMessageParam[],
+      messages: messages as OpenAI.ChatCompletionMessageParam[],
+
       temperature: chatSettings.temperature,
       max_tokens:
         chatSettings.model === "gpt-4-vision-preview" ? 4096 : undefined,
