@@ -1,32 +1,30 @@
 import { StreamingTextResponse } from "ai"
-import OpenAI from "@azure/openai"
+import { OpenAIClient, AzureKeyCredential } from "@azure/openai"
+import { NextRequest } from "next/server"
 
-const azureOpenai = new OpenAI({
-  apiKey: process.env.AZURE_OPENAI_API_KEY,
-  baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_DEPLOYMENT_ID}`,
-  defaultQuery: { "api-version": "2023-12-01-preview" },
-  defaultHeaders: { "api-key": process.env.AZURE_OPENAI_API_KEY }
-})
+const endpoint = "https://saintsal-core-api-openai-96ea.openai.azure.com/"
+const azureApiKey = "1afc1c88684a39b4a8a318345c9e04"
+const deploymentId = "gpt-4o"
 
-export async function POST(req: Request) {
-  try {
-    const { messages } = await req.json()
+const client = new OpenAIClient(endpoint, new AzureKeyCredential(azureApiKey))
 
-    const response = await azureOpenai.chat.completions.create({
-      model: process.env.AZURE_OPENAI_DEPLOYMENT_ID!,
-      messages,
-      temperature: 0.7,
-      stream: true
-    })
+export async function POST(req: NextRequest) {
+  const { messages } = await req.json()
 
-    // ✅ Azure-compatible streaming response
-    const stream = response as unknown as ReadableStream<Uint8Array>
-    return new Response(stream)
-  } catch (error: any) {
-    console.error("Azure error:", error)
-    return new Response(
-      JSON.stringify({ message: error?.message || "Azure failure" }),
-      { status: 500 }
-    )
-  }
+  const response = await client.streamChatCompletions(deploymentId, messages, {
+    temperature: 0.7
+  })
+
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream({
+    async start(controller) {
+      for await (const chunk of response) {
+        const content = chunk.choices?.[0]?.delta?.content
+        if (content) controller.enqueue(encoder.encode(content))
+      }
+      controller.close()
+    }
+  })
+
+  return new StreamingTextResponse(stream)
 }
