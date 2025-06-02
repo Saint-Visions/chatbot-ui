@@ -1,73 +1,32 @@
-import { checkApiKey, getServerProfile } from "@/lib/server/server-chat-helpers"
-import { ChatAPIPayload } from "@/types"
-import { OpenAIStream, StreamingTextResponse } from "ai"
-import OpenAI from "openai"
+import { StreamingTextResponse } from "ai"
+import OpenAI from "@azure/openai"
 
-export const runtime = "edge"
+const azureOpenai = new OpenAI({
+  apiKey: process.env.AZURE_OPENAI_API_KEY,
+  baseURL: `${process.env.AZURE_OPENAI_ENDPOINT}/openai/deployments/${process.env.AZURE_OPENAI_DEPLOYMENT_ID}`,
+  defaultQuery: { "api-version": "2023-12-01-preview" },
+  defaultHeaders: { "api-key": process.env.AZURE_OPENAI_API_KEY }
+})
 
-export async function POST(request: Request) {
-  const json = await request.json()
-  const { chatSettings, messages } = json as ChatAPIPayload
-
+export async function POST(req: Request) {
   try {
-    const profile = await getServerProfile()
-
-    checkApiKey(profile.azure_openai_api_key, "Azure OpenAI")
-
-    const ENDPOINT = profile.azure_openai_endpoint
-    const KEY = profile.azure_openai_api_key
-
-    let DEPLOYMENT_ID = ""
-    switch (chatSettings.model) {
-      case "gpt-3.5-turbo":
-        DEPLOYMENT_ID = profile.azure_openai_35_turbo_id || ""
-        break
-      case "gpt-4-turbo-preview":
-        DEPLOYMENT_ID = profile.azure_openai_45_turbo_id || ""
-        break
-      case "gpt-4-vision-preview":
-        DEPLOYMENT_ID = profile.azure_openai_45_vision_id || ""
-        break
-      default:
-        return new Response(JSON.stringify({ message: "Model not found" }), {
-          status: 400
-        })
-    }
-
-    if (!ENDPOINT || !KEY || !DEPLOYMENT_ID) {
-      return new Response(
-        JSON.stringify({ message: "Azure resources not found" }),
-        {
-          status: 400
-        }
-      )
-    }
-
-    const azureOpenai = new OpenAI({
-      apiKey: KEY,
-      baseURL: `${ENDPOINT}/openai/deployments/${DEPLOYMENT_ID}`,
-      defaultQuery: { "api-version": "2023-12-01-preview" },
-      defaultHeaders: { "api-key": KEY }
-    })
+    const { messages } = await req.json()
 
     const response = await azureOpenai.chat.completions.create({
-      model: DEPLOYMENT_ID,
-      messages: messages as OpenAI.ChatCompletionMessageParam[],
-
-      temperature: chatSettings.temperature,
-      max_tokens:
-        chatSettings.model === "gpt-4-vision-preview" ? 4096 : undefined,
+      model: process.env.AZURE_OPENAI_DEPLOYMENT_ID!,
+      messages,
+      temperature: 0.7,
       stream: true
     })
 
-    const stream = OpenAIStream(response as unknown as Response)
-
-    return new StreamingTextResponse(stream)
+    // ✅ Azure-compatible streaming response
+    const stream = response as unknown as ReadableStream<Uint8Array>
+    return new Response(stream)
   } catch (error: any) {
-    const errorMessage = error.error?.message || "An unexpected error occurred"
-    const errorCode = error.status || 500
-    return new Response(JSON.stringify({ message: errorMessage }), {
-      status: errorCode
-    })
+    console.error("Azure error:", error)
+    return new Response(
+      JSON.stringify({ message: error?.message || "Azure failure" }),
+      { status: 500 }
+    )
   }
 }
